@@ -12,3 +12,4 @@ class Vendor(Base):
     is_active = Column(Boolean, default=True)
 
     user = relationship("User", back_populates="vendor")
+    products = relationship("Product",back_populates="vendor",cascade="all, delete")
