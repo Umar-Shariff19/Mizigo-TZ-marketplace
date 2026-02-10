@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.db.database import engine, Base
@@ -10,11 +10,12 @@ from app.models.user import User
 from app.models.vendor import Vendor
 from app.models.product import Product
 from app.models.inventory import Inventory
+from app.models.order import Order
+from app.models.order_item import OrderItem
 from app.schemas.user import UserCreate, UserResponse
 from app.schemas.vendor import VendorCreate, VendorResponse
 from app.schemas.product import ProductCreate, ProductResponse
-
-
+from app.schemas.order import OrderCreate, OrderResponse
 
 Base.metadata.create_all(bind=engine)
 
@@ -97,3 +98,41 @@ def list_products(db: Session = Depends(get_db)):
         )
         for p in products
     ]
+
+@app.post("/orders", response_model=OrderResponse)
+def create_order(order: OrderCreate, db: Session = Depends(get_db)):
+    total_amount = 0
+    order_items = []
+
+    for item in order.items:
+        product = db.query(Product).filter(Product.id == item.product_id).first()
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        inventory = product.inventory
+        if inventory.quantity_available < item.quantity:
+            raise HTTPException(status_code=400, detail="Insufficient stock")
+        
+        inventory.quantity_available -= item.quantity
+
+        total_amount += product.price * item.quantity
+
+        order_items.append(
+            OrderItem(
+                product_id=product.id,
+                vendor_id=product.vendor_id,
+                quantity=item.quantity,
+                price_at_purchase=product.price
+            )
+        )
+    db_order = Order(
+        user_id=order.user_id,
+        total_amount=total_amount
+    )
+
+    db_order.items = order_items
+    db.add(db_order)
+    db.commit()
+    db.refresh(db_order)
+
+    return db_order
