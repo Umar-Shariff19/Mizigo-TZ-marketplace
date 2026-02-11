@@ -12,10 +12,13 @@ from app.models.product import Product
 from app.models.inventory import Inventory
 from app.models.order import Order
 from app.models.order_item import OrderItem
+from app.models.payment import Payment
+from app.models.delivery import Delivery
 from app.schemas.user import UserCreate, UserResponse
 from app.schemas.vendor import VendorCreate, VendorResponse
 from app.schemas.product import ProductCreate, ProductResponse
 from app.schemas.order import OrderCreate, OrderResponse
+from app.schemas.payment import PaymentCreate
 
 Base.metadata.create_all(bind=engine)
 
@@ -136,3 +139,28 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
     db.refresh(db_order)
 
     return db_order
+
+@app.post("/payments")
+def process_payment(payment: PaymentCreate, db: Session = Depends(get_db)):
+    order = db.query(Order).filter(Order.id == payment.order_id).first()
+
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if order.status != "PENDING":
+        raise HTTPException(status_code=400, detail="Order already processed")
+    
+    db_payment = Payment(
+        order_id=order.id,
+        amount=order.total_amount,
+        provider=payment.provider,
+        status="SUCCESS",
+        transaction_id="SIMULATED_TXN_123"
+    )
+
+    order.status = "CONFIRMED"
+
+    db.add(db_payment)
+    db.commit()
+
+    return {"message": "Payment successful", "order_status": order.status}
