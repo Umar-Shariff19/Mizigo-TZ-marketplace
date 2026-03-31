@@ -7,7 +7,6 @@ class OrderItemCreate(BaseModel):
     quantity: int
 
 class OrderCreate(BaseModel):
-    user_id: int
     items: List[OrderItemCreate]
 
 class OrderResponse(BaseModel):

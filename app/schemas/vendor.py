@@ -2,7 +2,6 @@ from pydantic import BaseModel
 
 class VendorCreate(BaseModel):
     store_name: str
-    user_id: int
 
 class VendorResponse(BaseModel):
     id: int

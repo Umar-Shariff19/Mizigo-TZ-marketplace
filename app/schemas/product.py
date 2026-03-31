@@ -2,7 +2,6 @@ from pydantic import BaseModel
 from decimal import Decimal
 
 class ProductCreate(BaseModel):
-    vendor_id: int
     name: str
     description: str | None = None
     price: Decimal
