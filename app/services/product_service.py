@@ -4,10 +4,13 @@ from datetime import datetime
 from app.models.vendor import Vendor
 from app.models.product import Product
 from app.models.inventory import Inventory
+from app.core.enums import SubscriptionPlan, UserRole
 
-def create_product_service(db: Session, current_user, product):
 
-    if current_user.role != "VENDOR":
+def create_product_service(db: Session, current_user, product) -> dict:
+    """Create a product and its inventory record for an authenticated vendor."""
+
+    if current_user.role != UserRole.VENDOR.value:
         raise HTTPException(status_code=403, detail="Only vendors allowed")
 
     vendor = db.query(Vendor).filter(Vendor.user_id == current_user.id).first()
@@ -15,11 +18,11 @@ def create_product_service(db: Session, current_user, product):
     if not vendor:
         raise HTTPException(status_code=400, detail="Vendor not found")
 
-    if vendor.subscription_plan == "PRO":
+    if vendor.subscription_plan == SubscriptionPlan.PRO.value:
         if vendor.subscription_expiry and vendor.subscription_expiry < datetime.utcnow():
             raise HTTPException(status_code=403, detail="Subscription expired")
 
-    if vendor.subscription_plan == "FREE":
+    if vendor.subscription_plan == SubscriptionPlan.FREE.value:
         count = db.query(Product).filter(Product.vendor_id == vendor.id).count()
         if count >= 2:
             raise HTTPException(status_code=403, detail="Free plan limit reached")
@@ -40,11 +43,11 @@ def create_product_service(db: Session, current_user, product):
     db.refresh(db_product)
 
     return {
-    "id": db_product.id,
-    "name": db_product.name,
-    "description": db_product.description,
-    "price": db_product.price,
-    "is_active": db_product.is_active,
-    "vendor_id": db_product.vendor_id,
-    "quantity_available": db_product.inventory.quantity_available
-}
+        "id": db_product.id,
+        "name": db_product.name,
+        "description": db_product.description,
+        "price": db_product.price,
+        "is_active": db_product.is_active,
+        "vendor_id": db_product.vendor_id,
+        "quantity_available": db_product.inventory.quantity_available
+    }

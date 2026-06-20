@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
+from app.core.enums import SubscriptionPlan
 from app.db.database import Base
 
 class Vendor(Base):
@@ -11,7 +12,7 @@ class Vendor(Base):
     store_name = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)
 
-    subscription_plan = Column(String, default="FREE")
+    subscription_plan = Column(String, default=SubscriptionPlan.FREE.value)
     subscription_expiry = Column(DateTime, nullable=True)
 
     user = relationship("User", back_populates="vendor")

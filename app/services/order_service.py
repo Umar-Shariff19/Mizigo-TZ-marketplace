@@ -4,7 +4,9 @@ from app.models.product import Product
 from app.models.order import Order
 from app.models.order_item import OrderItem
 
-def create_order_service(db: Session, current_user, order):
+
+def create_order_service(db: Session, current_user, order) -> Order:
+    """Create an order and decrement product inventory."""
 
     total_amount = 0
     order_items = []

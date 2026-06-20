@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, ForeignKey, Numeric, String, DateTime
 from sqlalchemy.orm import relationship
 from datetime import datetime
+from app.core.enums import OrderStatus
 from app.db.database import Base
 
 class Order(Base):
@@ -9,7 +10,7 @@ class Order(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
-    status = Column(String, default="PENDING")
+    status = Column(String, default=OrderStatus.PENDING.value)
     total_amount = Column(Numeric(10, 2), nullable=False)
 
     created_at = Column(DateTime, default=datetime.utcnow)

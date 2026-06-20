@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, ForeignKey, String, Numeric, DateTime
 from datetime import datetime
+from app.core.enums import PaymentStatus
 from app.db.database import Base
 
 class Payment(Base):
@@ -10,7 +11,7 @@ class Payment(Base):
     order_id = Column(Integer, ForeignKey("orders.id"), nullable=False)
     amount = Column(Numeric(10, 2), nullable=False)
 
-    status = Column(String, default="PENDING")
+    status = Column(String, default=PaymentStatus.PENDING.value)
     provider = Column(String)  # razorpay, stripe, etc.
     transaction_id = Column(String, nullable=True)
 

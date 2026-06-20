@@ -1,9 +1,10 @@
 from pydantic import BaseModel, EmailStr
+from app.core.enums import UserRole
 
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
-    role: str = "CUSTOMER"
+    role: str = UserRole.CUSTOMER.value
 
 class UserLogin(BaseModel):
     email: EmailStr
