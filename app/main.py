@@ -5,7 +5,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.core.exceptions import generic_exception_handler, http_exception_handler
 from app.db.database import Base, engine
-from app.routers import auth, orders, payments, products, users, vendors
+from app.routers import admin, auth, orders, payments, products, users, vendors
 
 Base.metadata.create_all(bind=engine)
 
@@ -44,6 +44,7 @@ def health() -> dict:
 
 
 app.include_router(auth.router)
+app.include_router(admin.router)
 app.include_router(users.router)
 app.include_router(vendors.router)
 app.include_router(products.router)
