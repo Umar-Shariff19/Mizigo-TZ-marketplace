@@ -1,18 +1,47 @@
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import asc, desc, or_
+from sqlalchemy import asc, desc, func, or_
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.enums import UserRole
 from app.core.deps import get_current_user
 from app.core.logger import logger
 from app.db.session import get_db
+from app.models.order import Order
+from app.models.order_item import OrderItem
 from app.models.product import Product
 from app.models.user import User
-from app.schemas.product import ProductCreate, ProductResponse
+from app.models.vendor import Vendor
+from app.schemas.order import VendorDashboardResponse
+from app.schemas.product import ProductCreate, ProductResponse, ProductUpdate
 from app.services.product_service import create_product_service
 
 router = APIRouter(tags=["Products"])
+
+
+def _get_current_vendor(db: Session, current_user: User) -> Vendor:
+    if current_user.role != UserRole.VENDOR.value:
+        raise HTTPException(status_code=403, detail="Only vendors allowed")
+
+    vendor = db.query(Vendor).filter(Vendor.user_id == current_user.id).first()
+
+    if not vendor:
+        raise HTTPException(status_code=400, detail="Vendor not found")
+
+    return vendor
+
+
+def _product_response(product: Product) -> dict:
+    return {
+        "id": product.id,
+        "name": product.name,
+        "description": product.description,
+        "price": product.price,
+        "is_active": product.is_active,
+        "vendor_id": product.vendor_id,
+        "quantity_available": product.inventory.quantity_available if product.inventory else 0,
+    }
 
 
 @router.post(
@@ -78,14 +107,119 @@ def list_products(
     products = query.offset(skip).limit(limit).all()
 
     return [
-        {
-            "id": p.id,
-            "name": p.name,
-            "description": p.description,
-            "price": p.price,
-            "is_active": p.is_active,
-            "vendor_id": p.vendor_id,
-            "quantity_available": p.inventory.quantity_available if p.inventory else 0
-        }
+        _product_response(p)
         for p in products
     ]
+
+
+@router.get(
+    "/vendor/products",
+    response_model=List[ProductResponse],
+    tags=["Vendor"],
+    summary="List vendor products",
+    description="Returns products owned by the authenticated vendor.",
+)
+def list_vendor_products(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> list[dict]:
+    vendor = _get_current_vendor(db, current_user)
+    products = (
+        db.query(Product)
+        .options(joinedload(Product.inventory))
+        .filter(Product.vendor_id == vendor.id)
+        .all()
+    )
+
+    return [_product_response(product) for product in products]
+
+
+@router.patch(
+    "/vendor/products/{id}",
+    response_model=ProductResponse,
+    tags=["Vendor"],
+    summary="Update vendor product",
+    description="Updates a product owned by the authenticated vendor.",
+)
+def update_vendor_product(
+    id: int,
+    product_update: ProductUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    vendor = _get_current_vendor(db, current_user)
+    product = (
+        db.query(Product)
+        .options(joinedload(Product.inventory))
+        .filter(Product.id == id, Product.vendor_id == vendor.id)
+        .first()
+    )
+
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    update_data = product_update.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(product, field, value)
+
+    db.commit()
+    db.refresh(product)
+
+    return _product_response(product)
+
+
+@router.delete(
+    "/vendor/products/{id}",
+    tags=["Vendor"],
+    summary="Delete vendor product",
+    description="Deletes a product owned by the authenticated vendor.",
+)
+def delete_vendor_product(
+    id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    vendor = _get_current_vendor(db, current_user)
+    product = db.query(Product).filter(Product.id == id, Product.vendor_id == vendor.id).first()
+
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    db.delete(product)
+    db.commit()
+
+    return {"message": "Product deleted"}
+
+
+@router.get(
+    "/vendor/dashboard",
+    response_model=VendorDashboardResponse,
+    tags=["Vendor"],
+    summary="Vendor dashboard",
+    description="Returns aggregate product, order, and revenue metrics for the authenticated vendor.",
+)
+def get_vendor_dashboard(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    vendor = _get_current_vendor(db, current_user)
+
+    total_products = db.query(Product).filter(Product.vendor_id == vendor.id).count()
+    total_orders = (
+        db.query(Order.id)
+        .join(OrderItem, OrderItem.order_id == Order.id)
+        .filter(OrderItem.vendor_id == vendor.id)
+        .distinct()
+        .count()
+    )
+    total_revenue = (
+        db.query(func.coalesce(func.sum(OrderItem.price_at_purchase * OrderItem.quantity), 0))
+        .filter(OrderItem.vendor_id == vendor.id)
+        .scalar()
+    )
+
+    return {
+        "total_products": total_products,
+        "total_orders": total_orders,
+        "total_revenue": total_revenue,
+    }

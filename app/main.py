@@ -4,10 +4,7 @@ from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 
 from app.core.exceptions import generic_exception_handler, http_exception_handler
-from app.db.database import Base, engine
 from app.routers import admin, auth, orders, payments, products, users, vendors
-
-Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Mizigo TZ API")
 

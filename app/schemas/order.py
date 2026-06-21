@@ -17,3 +17,9 @@ class OrderResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class VendorDashboardResponse(BaseModel):
+    total_products: int
+    total_orders: int
+    total_revenue: Decimal

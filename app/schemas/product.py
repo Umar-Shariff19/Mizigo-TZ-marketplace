@@ -7,6 +7,14 @@ class ProductCreate(BaseModel):
     price: Decimal
     quantity: int
 
+
+class ProductUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    price: Decimal | None = None
+    is_active: bool | None = None
+
+
 class ProductResponse(BaseModel):
     id: int
     name: str
