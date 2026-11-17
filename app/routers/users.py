@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.deps import require_admin_user
+from app.core.enums import UserRole
 from app.core.security import hash_password
 from app.db.session import get_db
 from app.models.user import User
@@ -14,17 +15,19 @@ router = APIRouter(tags=["Users"])
     "/users",
     response_model=UserResponse,
     summary="Create user",
-    description="Registers a new marketplace user with a hashed password.",
+    description="Registers a new marketplace customer account with a hashed password.",
 )
 def create_user(user: UserCreate, db: Session = Depends(get_db)) -> User:
     existing = db.query(User).filter(User.email == user.email).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
+    # Hard-enforce CUSTOMER role to prevent public privilege escalation
     db_user = User(
         email=user.email,
         hashed_password=hash_password(user.password),
-        role=user.role
+        role=UserRole.CUSTOMER.value,
+        is_active=True
     )
 
     db.add(db_user)

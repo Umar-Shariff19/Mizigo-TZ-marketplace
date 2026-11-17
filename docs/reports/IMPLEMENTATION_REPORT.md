@@ -76,28 +76,6 @@ Productionization support has been added around the current FastAPI backend whil
   - Test suite execution.
   - FastAPI test client support.
 
-## Files Created
-
-- `.dockerignore`
-- `.env.example`
-- `Dockerfile`
-- `docker-compose.yml`
-- `README.md`
-- `IMPLEMENTATION_REPORT.md`
-- `alembic.ini`
-- `alembic/env.py`
-- `alembic/script.py.mako`
-- `alembic/versions/0001_initial_schema.py`
-- `app/routers/admin.py`
-- `tests/conftest.py`
-- `tests/test_api_smoke.py`
-
-## Files Modified
-
-- `requirements.txt`
-- `app/main.py`
-- `app/routers/products.py`
-
 ## Behavior Preservation
 
 - Existing endpoint URLs were preserved.
@@ -107,14 +85,3 @@ Productionization support has been added around the current FastAPI backend whil
 - Payment processing logic was not rewritten.
 - SQLAlchemy model definitions were not redesigned.
 - No Redis, Kubernetes, microservices, or schema redesign were introduced.
-
-## Operational Notes
-
-- `Base.metadata.create_all(bind=engine)` remains in `app/main.py` to preserve the current startup behavior.
-- Alembic is now available for controlled schema migrations going forward.
-- For Docker Compose, the API service overrides `DATABASE_URL` to use the Compose database hostname `db`.
-
-## Verification
-
-- A test suite has been added.
-- Automated execution could not be completed in this workspace because the local Python launcher reports no default Python installation.

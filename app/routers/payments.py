@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
+from app.core.enums import UserRole
 from app.core.logger import logger
 from app.db.session import get_db
 from app.models.order import Order
@@ -29,7 +30,7 @@ def process_payment(
         if not order:
             raise HTTPException(status_code=404, detail="Order not found")
 
-        if order.user_id != current_user.id:
+        if order.user_id != current_user.id and current_user.role != UserRole.ADMIN.value:
             raise HTTPException(status_code=403, detail="Not authorized to process payment for this order")
 
         return process_payment_service(db, payment)

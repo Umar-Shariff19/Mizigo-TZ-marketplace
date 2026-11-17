@@ -1,22 +1,36 @@
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 from slowapi.errors import RateLimitExceeded
 
-from app.core.exceptions import generic_exception_handler, http_exception_handler
+from app.core.config import settings
+from app.core.exceptions import (
+    generic_exception_handler,
+    http_exception_handler,
+    validation_exception_handler,
+)
 from app.routers import admin, auth, orders, payments, products, users, vendors
+
+# Ensure product upload storage directory exists
+Path(settings.PRODUCT_UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Mizigo TZ API")
 
+app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.add_exception_handler(HTTPException, http_exception_handler)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(Exception, generic_exception_handler)
 
 app.state.limiter = auth.limiter

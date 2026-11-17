@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, ForeignKey, String, Numeric, DateTime
-from datetime import datetime
+from datetime import datetime, timezone
 from app.core.enums import PaymentStatus
 from app.db.database import Base
 
@@ -15,4 +15,4 @@ class Payment(Base):
     provider = Column(String)  # razorpay, stripe, etc.
     transaction_id = Column(String, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

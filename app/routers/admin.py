@@ -55,7 +55,7 @@ def list_admin_vendors(db: Session = Depends(get_db)) -> list[Vendor]:
     description="Returns all orders. Requires ADMIN role.",
 )
 def list_admin_orders(db: Session = Depends(get_db)) -> list[Order]:
-    return db.query(Order).all()
+    return db.query(Order).options(joinedload(Order.items)).all()
 
 
 @router.patch(

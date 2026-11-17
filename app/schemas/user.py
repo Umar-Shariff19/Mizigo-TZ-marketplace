@@ -1,10 +1,10 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from app.core.enums import UserRole
 
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str
-    role: str = UserRole.CUSTOMER.value
+    password: str = Field(min_length=6, max_length=128)
+    role: str | None = None  # Ignored by public registration to prevent privilege escalation
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -16,5 +16,4 @@ class UserResponse(BaseModel):
     role: str
     is_active: bool
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

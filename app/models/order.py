@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, ForeignKey, Numeric, String, DateTime
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from app.core.enums import OrderStatus
 from app.db.database import Base
 
@@ -13,7 +13,7 @@ class Order(Base):
     status = Column(String, default=OrderStatus.PENDING.value)
     total_amount = Column(Numeric(10, 2), nullable=False)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     items = relationship(
         "OrderItem",

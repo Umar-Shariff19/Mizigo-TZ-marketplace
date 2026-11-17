@@ -1,11 +1,13 @@
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Header, UploadFile
+from jose import jwt, JWTError
 from sqlalchemy import asc, desc, func, or_
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.config import settings
 from app.core.enums import UserRole
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_active_vendor
 from app.core.logger import logger
 from app.db.session import get_db
 from app.models.order import Order
@@ -15,21 +17,10 @@ from app.models.user import User
 from app.models.vendor import Vendor
 from app.schemas.order import VendorDashboardResponse
 from app.schemas.product import ProductCreate, ProductResponse, ProductUpdate
+from app.services.image_service import delete_image_file, save_product_image
 from app.services.product_service import create_product_service
 
 router = APIRouter(tags=["Products"])
-
-
-def _get_current_vendor(db: Session, current_user: User) -> Vendor:
-    if current_user.role != UserRole.VENDOR.value:
-        raise HTTPException(status_code=403, detail="Only vendors allowed")
-
-    vendor = db.query(Vendor).filter(Vendor.user_id == current_user.id).first()
-
-    if not vendor:
-        raise HTTPException(status_code=400, detail="Vendor not found")
-
-    return vendor
 
 
 def _product_response(product: Product) -> dict:
@@ -41,7 +32,21 @@ def _product_response(product: Product) -> dict:
         "is_active": product.is_active,
         "vendor_id": product.vendor_id,
         "quantity_available": product.inventory.quantity_available if product.inventory else 0,
+        "image_url": product.image_url,
     }
+
+
+@router.post(
+    "/products/upload-image",
+    summary="Upload product image",
+    description="Uploads a product image file for the authenticated vendor and returns the relative image URL.",
+)
+async def upload_product_image_endpoint(
+    file: UploadFile = File(...),
+    vendor: Vendor = Depends(require_active_vendor),
+) -> dict:
+    image_url = await save_product_image(file)
+    return {"image_url": image_url}
 
 
 @router.post(
@@ -63,7 +68,7 @@ def create_product(
     "/products",
     response_model=List[ProductResponse],
     summary="List products",
-    description="Returns marketplace products with pagination and price filtering.",
+    description="Returns active marketplace products with pagination and price filtering.",
 )
 def list_products(
     skip: int = 0,
@@ -75,7 +80,13 @@ def list_products(
     sort_order: str = Query(default="asc", description="Sort direction: asc or desc."),
     db: Session = Depends(get_db)
 ) -> list[dict]:
-    query = db.query(Product).options(joinedload(Product.inventory))
+    # Only return active products belonging to active vendors in public catalogue
+    query = (
+        db.query(Product)
+        .join(Vendor, Product.vendor_id == Vendor.id)
+        .options(joinedload(Product.inventory))
+        .filter(Product.is_active == True, Vendor.is_active == True)
+    )
 
     query = query.filter(Product.price >= min_price, Product.price <= max_price)
 
@@ -106,10 +117,47 @@ def list_products(
 
     products = query.offset(skip).limit(limit).all()
 
-    return [
-        _product_response(p)
-        for p in products
-    ]
+    return [_product_response(p) for p in products]
+
+
+@router.get(
+    "/products/{id}",
+    response_model=ProductResponse,
+    summary="Get single product",
+    description="Returns details for a single product by ID.",
+)
+def get_product(
+    id: int,
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db)
+) -> dict:
+    product = (
+        db.query(Product)
+        .options(joinedload(Product.inventory))
+        .filter(Product.id == id)
+        .first()
+    )
+
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    # If the product is active and its vendor is active, anyone can view it
+    vendor = db.query(Vendor).filter(Vendor.id == product.vendor_id).first()
+    if product.is_active and (vendor and vendor.is_active):
+        return _product_response(product)
+
+    # If inactive, verify if authenticated user is the owner vendor or an admin
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+        try:
+            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+            user = db.query(User).filter(User.email == payload.get("sub")).first()
+            if user and (user.role == UserRole.ADMIN.value or (vendor and vendor.user_id == user.id)):
+                return _product_response(product)
+        except JWTError:
+            pass
+
+    raise HTTPException(status_code=404, detail="Product not found")
 
 
 @router.get(
@@ -121,9 +169,8 @@ def list_products(
 )
 def list_vendor_products(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    vendor: Vendor = Depends(require_active_vendor)
 ) -> list[dict]:
-    vendor = _get_current_vendor(db, current_user)
     products = (
         db.query(Product)
         .options(joinedload(Product.inventory))
@@ -145,9 +192,8 @@ def update_vendor_product(
     id: int,
     product_update: ProductUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    vendor: Vendor = Depends(require_active_vendor)
 ) -> dict:
-    vendor = _get_current_vendor(db, current_user)
     product = (
         db.query(Product)
         .options(joinedload(Product.inventory))
@@ -158,12 +204,97 @@ def update_vendor_product(
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
 
+    if product_update.price is not None and product_update.price <= 0:
+        raise HTTPException(status_code=400, detail="Price must be positive")
+
     update_data = product_update.model_dump(exclude_unset=True)
+    old_image_url = product.image_url
     for field, value in update_data.items():
+        if field == "name" and value is not None:
+            value = value.strip()
         setattr(product, field, value)
 
     db.commit()
     db.refresh(product)
+
+    if "image_url" in update_data and old_image_url and old_image_url != product.image_url:
+        delete_image_file(old_image_url, db)
+
+    return _product_response(product)
+
+
+@router.post(
+    "/vendor/products/{id}/image",
+    response_model=ProductResponse,
+    tags=["Vendor"],
+    summary="Upload or replace product image",
+    description="Uploads and replaces the product image for a product owned by the authenticated vendor.",
+)
+async def upload_vendor_product_image(
+    id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    vendor: Vendor = Depends(require_active_vendor),
+) -> dict:
+    product = (
+        db.query(Product)
+        .options(joinedload(Product.inventory))
+        .filter(Product.id == id)
+        .first()
+    )
+
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    if product.vendor_id != vendor.id:
+        raise HTTPException(status_code=403, detail="Not authorized to modify this product")
+
+    old_image_url = product.image_url
+    image_url = await save_product_image(file)
+    product.image_url = image_url
+
+    db.commit()
+    db.refresh(product)
+
+    if old_image_url and old_image_url != image_url:
+        delete_image_file(old_image_url, db)
+
+    return _product_response(product)
+
+
+@router.delete(
+    "/vendor/products/{id}/image",
+    response_model=ProductResponse,
+    tags=["Vendor"],
+    summary="Remove product image",
+    description="Removes the image from a product owned by the authenticated vendor.",
+)
+def remove_vendor_product_image(
+    id: int,
+    db: Session = Depends(get_db),
+    vendor: Vendor = Depends(require_active_vendor),
+) -> dict:
+    product = (
+        db.query(Product)
+        .options(joinedload(Product.inventory))
+        .filter(Product.id == id)
+        .first()
+    )
+
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    if product.vendor_id != vendor.id:
+        raise HTTPException(status_code=403, detail="Not authorized to modify this product")
+
+    old_image_url = product.image_url
+    product.image_url = None
+
+    db.commit()
+    db.refresh(product)
+
+    if old_image_url:
+        delete_image_file(old_image_url, db)
 
     return _product_response(product)
 
@@ -177,16 +308,19 @@ def update_vendor_product(
 def delete_vendor_product(
     id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    vendor: Vendor = Depends(require_active_vendor)
 ) -> dict:
-    vendor = _get_current_vendor(db, current_user)
     product = db.query(Product).filter(Product.id == id, Product.vendor_id == vendor.id).first()
 
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
 
+    image_to_delete = product.image_url
     db.delete(product)
     db.commit()
+
+    if image_to_delete:
+        delete_image_file(image_to_delete, db)
 
     return {"message": "Product deleted"}
 
@@ -200,10 +334,8 @@ def delete_vendor_product(
 )
 def get_vendor_dashboard(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    vendor: Vendor = Depends(require_active_vendor)
 ) -> dict:
-    vendor = _get_current_vendor(db, current_user)
-
     total_products = db.query(Product).filter(Product.vendor_id == vendor.id).count()
     total_orders = (
         db.query(Order.id)
