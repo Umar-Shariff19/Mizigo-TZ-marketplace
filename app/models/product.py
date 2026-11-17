@@ -12,6 +12,7 @@ class Product(Base):
     description = Column(String, nullable=True)
     price = Column(Numeric(10, 2), nullable=False)
     is_active = Column(Boolean, default=True)
+    image_url = Column(String, nullable=True)
 
     vendor = relationship("Vendor", back_populates="products")
     inventory = relationship(
